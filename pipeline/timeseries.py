@@ -43,3 +43,21 @@ def monthly_anomalies(series: list, first_year: int = None, last_year: int = Non
         c = clim.get(d.month)
         rows.append((d, v, c, None if v is None or c is None else v - c))
     return rows
+
+
+def combine_platforms(rows_by_platform: dict) -> list:
+    """Average per-platform (date, value, climatology, anomaly) rows month by month.
+
+    Each platform's anomaly is against its own climatology, so mixing Terra and Aqua adds no overpass-time bias.
+    """
+    merged = {}
+    for rows in rows_by_platform.values():
+        for d, v, c, a in rows:
+            merged.setdefault(d, []).append((v, c, a))
+    out = []
+    for d in sorted(merged):
+        cols = list(zip(*merged[d]))
+        mean = [None if not [x for x in col if x is not None] else
+                sum(x for x in col if x is not None) / len([x for x in col if x is not None]) for col in cols]
+        out.append((d, *mean))
+    return out

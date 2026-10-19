@@ -54,3 +54,18 @@ def export_to_drive(image: ee.Image, band: str, folder: str, name: str) -> ee.ba
     )
     task.start()
     return task
+
+
+def write_geotiff(array, gbox, band: str, path: pathlib.Path, tags: dict = None) -> pathlib.Path:
+    """Write a float32 array on an odc-geo GeoBox (NaN -> NODATA)."""
+    import numpy as np
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = np.where(np.isfinite(array), array, config.NODATA).astype("float32")
+    profile = dict(driver="GTiff", width=data.shape[1], height=data.shape[0], count=1, dtype="float32",
+                   crs=str(gbox.crs), transform=gbox.affine, nodata=config.NODATA, compress="deflate",
+                   tiled=True, blockxsize=256, blockysize=256)
+    with rasterio.open(path, "w", **profile) as ds:
+        ds.write(data, 1)
+        ds.set_band_description(1, band)
+        ds.update_tags(**{k: str(v) for k, v in (tags or {}).items()})
+    return path
