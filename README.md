@@ -24,20 +24,42 @@ clear ones. Use `--baseline 2018:2025` to pin a fixed baseline instead.
 and night LST differ by ~10 °C. Override with `--pass D|N|both` (the climatology always uses
 the same pass as the target).
 
-### Setup
+### Notebook (Google Colab)
+
+1. Upload this repository to Google Drive as `MyDrive/SDMAD_Products`
+   (so `MyDrive/SDMAD_Products/pipeline/` exists).
+2. Open `notebooks/SDMAD_SST_LST_Pipeline.ipynb` in Colab and run the cells in order.
+
+The notebook mounts Drive, installs the requirements and imports the pipeline from
+`/content/drive/MyDrive/SDMAD_Products`. The inputs form offers:
+
+- **As of** — a window of `WINDOW_DAYS` days ending on a date, or on the newest image (`USE_LATEST`)
+- **Time range** — inclusive start/end dates (up to a year)
+- **Month(s)** — one map per calendar month in a range
+
+plus passes, baseline years and output mode. Outputs go to `MyDrive/SDMAD_Products/outputs/`.
+After the run it shows the output maps, an interactive geemap map (layer toggles, value
+inspector, PAR outline) and a PAR-mean monthly time series of the whole record with
+anomaly bars (saved as CSV + PNG under `outputs/<product>/timeseries/`).
+
+### Command line
+
+#### Setup
 
 ```bash
 pip install -r requirements.txt
 earthengine authenticate          # once; the pipeline also prompts if needed
 ```
 
-### Usage
+#### Usage
 
 ```bash
 python -m pipeline                                   # last complete month, SST + LST
 python -m pipeline --month 2026-09                   # one month (repeat --month for more)
 python -m pipeline --months 2026-01:2026-09 --products SST
 python -m pipeline --start 2026-10-01 --end 2026-10-07   # custom window (≤ 1 year)
+python -m pipeline --as-of 2026-10-15 --window-days 7    # 7 days ending 2026-10-15
+python -m pipeline --as-of latest                        # 30 days ending at the newest image
 python -m pipeline --month 2026-09 --export drive    # run as GEE tasks to Google Drive
 ```
 
