@@ -73,3 +73,20 @@ def last_complete_month(latest: dt.date) -> Period:
         return month
     prev = month.start - dt.timedelta(days=1)
     return month_period(prev.year, prev.month)
+
+
+ONE_DAY = dt.timedelta(days=1)
+
+
+def month_labels(first: str, last: str) -> list:
+    return [p.label for p in month_range(first, last)]
+
+
+def as_of_period(as_of: dt.date, window_days: int, latest: dt.date = None) -> Period:
+    """`window_days` days ending on `as_of` (inclusive), clamped to the latest available date."""
+    if window_days < 1 or window_days > 366:
+        raise ValueError("window_days must be between 1 and 366")
+    if latest is not None and as_of > latest:
+        as_of = latest
+    end = as_of + ONE_DAY
+    return Period(end - dt.timedelta(days=window_days), end)

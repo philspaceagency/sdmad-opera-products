@@ -69,3 +69,8 @@ PRODUCTS = {p.name: p for p in (SST, LST)}
 
 # Anomaly quicklook: diverging, discrete steps (same style as NOAA/Climate Reanalyzer maps).
 ANOMALY_VIS = (-3.0, 3.0, 0.5)  # (min, max, step) degC
+
+# Interactive (geemap) palettes.
+TEMP_PALETTE = ["#30123b", "#4669db", "#26bce1", "#43f087", "#c2f234", "#fdad35", "#e34a0e", "#7a0403"]
+ANOMALY_PALETTE = ["#053061", "#2166ac", "#4393c3", "#92c5de", "#d1e5f0", "#f7f7f7",
+                   "#fddbc7", "#f4a582", "#d6604d", "#b2182b", "#67001f"]

@@ -5,14 +5,17 @@ Examples:
     python -m pipeline --month 2026-09
     python -m pipeline --months 2026-01:2026-09 --products SST
     python -m pipeline --start 2026-10-01 --end 2026-10-07
+    python -m pipeline --as-of 2026-10-15 --window-days 7   # 7 days ending 2026-10-15
+    python -m pipeline --as-of latest                       # 30 days ending at the latest image
     python -m pipeline --month 2026-09 --export drive
 """
 
 import argparse
-import json
+import datetime as dt
+import functools
 import pathlib
 
-from . import config, export, gee, periods, plot
+from . import config, gee, periods, runner
 
 
 def parse_args(argv=None):
@@ -21,7 +24,9 @@ def parse_args(argv=None):
     when.add_argument("--month", action="append", help="Target month YYYY-MM (repeatable)")
     when.add_argument("--months", help="Inclusive month range YYYY-MM:YYYY-MM")
     when.add_argument("--start", help="Custom period start YYYY-MM-DD (use with --end)")
+    when.add_argument("--as-of", help="Window ending on this date (YYYY-MM-DD or 'latest')")
     p.add_argument("--end", help="Custom period end YYYY-MM-DD, inclusive")
+    p.add_argument("--window-days", type=int, default=30, help="Window length for --as-of (default 30)")
     p.add_argument("--products", nargs="+", default=list(config.PRODUCTS), choices=list(config.PRODUCTS))
     p.add_argument("--pass", dest="sat_pass", choices=["D", "N", "both"],
                    help="Satellite pass (default: SST=both, LST=D)")
@@ -37,87 +42,28 @@ def parse_args(argv=None):
     return args
 
 
-def target_periods(args, latest):
-    if args.month:
-        return [periods.parse_month(m) for m in args.month]
-    if args.months:
-        return periods.month_range(*args.months.split(":"))
-    if args.start:
-        return [periods.custom_period(args.start, args.end)]
-    return [periods.last_complete_month(latest)]
-
-
-def run_product(product, args):
-    sat_pass = args.sat_pass or product.default_pass
-    coll = gee.collection(product, sat_pass)
-    first, latest = gee.date_range(coll)
-    if args.baseline:
-        first_year, last_year = (int(y) for y in args.baseline.split(":"))
-    else:
-        first_year, last_year = first.year, latest.year
-    print(f"[{product.name}] {product.collection} pass={sat_pass} record {first} -> {latest}, "
-          f"baseline {first_year}-{last_year}")
-
-    kinds = list(product.outputs)
-    if product.name == "LST" and args.lst_anomaly:
-        kinds.append("anomaly")
-
-    for period in target_periods(args, latest):
-        if period.start > latest:
-            print(f"[{product.name}] {period.label}: no data yet (latest {latest}), skipping")
-            continue
-        temp, n_images = gee.composite(coll, period)
-        clim, n_years = gee.climatology(coll, period, first_year, last_year)
-        images = {"temperature": temp, "anomaly": gee.anomaly(temp, clim)}
-
-        meta = {
-            "product": product.long_name,
-            "collection": product.collection,
-            "satellite_pass": sat_pass,
-            "period_start": period.start.isoformat(),
-            "period_end_exclusive": period.end.isoformat(),
-            "record_first": first.isoformat(),
-            "record_latest": latest.isoformat(),
-            "climatology_years": f"{first_year}-{last_year}",
-            "units": "degC",
-            "extent": "Philippine Area of Responsibility",
-        }
-        counts = {"n_images": n_images}
-        if "anomaly" in kinds:
-            counts["n_climatology_years"] = n_years
-        meta.update(gee.ee.Dictionary(counts).getInfo())
-        if meta["n_images"] == 0:
-            print(f"[{product.name}] {period.label}: no images, skipping")
-            continue
-        if period.end > latest:
-            meta["note"] = f"partial period: data available up to {latest}"
-
-        for kind in kinds:
-            name = f"{product.name}_{kind}_{period.label}"
-            band = f"{product.name}_{kind}"
-            if args.export == "drive":
-                task = export.export_to_drive(images[kind], band, f"PAR_{product.name}_{kind}", name)
-                print(f"[{product.name}] started Drive export {name} (task {task.id})")
-                continue
-            out_dir = args.out / product.name / kind
-            tif = export.download_geotiff(images[kind], band, out_dir / f"{name}.tif", {**meta, "output": kind})
-            (out_dir / f"{name}.json").write_text(json.dumps({**meta, "output": kind}, indent=2))
-            msg = f"[{product.name}] wrote {tif}"
-            if not args.no_png:
-                title = f"{product.long_name} {'anomaly ' if kind == 'anomaly' else ''}— {period.label}\n" \
-                        f"GCOM-C/SGLI, pass={sat_pass}"
-                if kind == "anomaly":
-                    title += f", vs {first_year}-{last_year} climatology"
-                png = plot.quicklook(tif, tif.with_suffix(".png"), kind, product, title)
-                msg += f" (+ {png.name})"
-            print(msg)
+def targets_from_args(args):
+    """Callable latest-date -> periods, so defaults can depend on each product's record."""
+    as_of = None
+    if args.as_of and args.as_of != "latest":
+        as_of = dt.date.fromisoformat(args.as_of)
+    return functools.partial(
+        runner.resolve_targets,
+        months=args.month or (periods.month_labels(*args.months.split(":")) if args.months else None),
+        start=args.start, end=args.end,
+        as_of=as_of, window_days=args.window_days if args.as_of else None,
+    )
 
 
 def main(argv=None):
     args = parse_args(argv)
     gee.initialize(args.project)
+    baseline = tuple(int(y) for y in args.baseline.split(":")) if args.baseline else None
     for name in args.products:
-        run_product(config.PRODUCTS[name], args)
+        runner.run_product(
+            config.PRODUCTS[name], targets_from_args(args), sat_pass=args.sat_pass, baseline=baseline,
+            lst_anomaly=args.lst_anomaly, export_mode=args.export, out=args.out, png=not args.no_png,
+        )
 
 
 if __name__ == "__main__":
