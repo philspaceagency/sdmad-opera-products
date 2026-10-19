@@ -7,7 +7,8 @@ Examples:
     python -m pipeline --start 2026-10-01 --end 2026-10-07
     python -m pipeline --as-of 2026-10-15 --window-days 7   # 7 days ending 2026-10-15
     python -m pipeline --as-of latest                       # 30 days ending at the latest image
-    python -m pipeline --month 2026-09 --export drive
+    python -m pipeline --month 2026-09 --export drive         # SST as GEE tasks to Google Drive
+    python -m pipeline --products LST --lst-platform terra --lst-pass N
 """
 
 import argparse
@@ -15,7 +16,7 @@ import datetime as dt
 import functools
 import pathlib
 
-from . import config, gee, periods, runner
+from . import config, gee, mpc, periods, runner
 
 
 def parse_args(argv=None):
@@ -28,11 +29,17 @@ def parse_args(argv=None):
     p.add_argument("--end", help="Custom period end YYYY-MM-DD, inclusive")
     p.add_argument("--window-days", type=int, default=30, help="Window length for --as-of (default 30)")
     p.add_argument("--products", nargs="+", default=list(config.PRODUCTS), choices=list(config.PRODUCTS))
-    p.add_argument("--pass", dest="sat_pass", choices=["D", "N", "both"],
-                   help="Satellite pass (default: SST=both, LST=D)")
-    p.add_argument("--lst-anomaly", action="store_true", help="Also produce an LST anomaly")
+    p.add_argument("--sst-pass", choices=list(config.SST.passes), default=config.SST.default_pass,
+                   help="GCOM-C pass for SST (default: both)")
+    p.add_argument("--lst-pass", choices=list(config.LST.passes), default=config.LST.default_pass,
+                   help="MODIS LST day (D) or night (N) (default: D)")
+    p.add_argument("--lst-platform", choices=["both", *config.MODIS_PLATFORMS], default=config.MODIS_DEFAULT_PLATFORM,
+                   help="MODIS platform(s) for LST (default: both, each against its own climatology)")
     p.add_argument("--baseline", help="Climatology years FIRST:LAST (default: entire record)")
-    p.add_argument("--export", choices=["local", "drive"], default="local")
+    p.add_argument("--export", choices=["local", "drive"], default="local",
+                   help="SST only: 'drive' runs Earth Engine export tasks instead of downloading")
+    p.add_argument("--cache", default="cache", type=pathlib.Path,
+                   help="Planetary Computer search + MODIS composite cache (makes LST reruns cheap)")
     p.add_argument("--out", default="outputs", type=pathlib.Path, help="Local output root")
     p.add_argument("--no-png", action="store_true", help="Skip PNG quicklooks")
     p.add_argument("--project", default=config.GEE_PROJECT)
@@ -57,12 +64,15 @@ def targets_from_args(args):
 
 def main(argv=None):
     args = parse_args(argv)
-    gee.initialize(args.project)
+    if "SST" in args.products:
+        gee.initialize(args.project)
+    mpc.set_cache_dir(args.cache)
     baseline = tuple(int(y) for y in args.baseline.split(":")) if args.baseline else None
+    passes = {"SST": args.sst_pass, "LST": args.lst_pass}
     for name in args.products:
         runner.run_product(
-            config.PRODUCTS[name], targets_from_args(args), sat_pass=args.sat_pass, baseline=baseline,
-            lst_anomaly=args.lst_anomaly, export_mode=args.export, out=args.out, png=not args.no_png,
+            config.PRODUCTS[name], targets_from_args(args), sat_pass=passes[name], baseline=baseline,
+            platform=args.lst_platform, export_mode=args.export, out=args.out, png=not args.no_png,
         )
 
 

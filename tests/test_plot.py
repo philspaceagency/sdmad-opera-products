@@ -34,3 +34,18 @@ def test_results_panel_and_timeseries(tmp_path):
               for i in range(36)]
     plot.timeseries_figure(monthly_anomalies(series), config.SST).savefig(tmp_path / "ts.png")
     assert (tmp_path / "panel.png").exists() and (tmp_path / "ts.png").exists()
+
+
+def test_overlay_png(tmp_path):
+    test_quicklook_writes_png(tmp_path)
+    url, ((s, w), (n, e)) = plot.overlay_png(tmp_path / "a.tif", "anomaly", config.SST)
+    assert url.startswith("data:image/png;base64,") and (s, w, n, e) == (5.0, 115.0, 25.0, 135.0)
+
+
+def test_combine_platforms():
+    import datetime as dt
+
+    from pipeline.timeseries import combine_platforms
+    d = dt.date(2024, 9, 1)
+    rows = combine_platforms({"terra": [(d, 30.0, 29.0, 1.0)], "aqua": [(d, 33.0, 32.0, 1.0), (dt.date(2024, 10, 1), None, 31.0, None)]})
+    assert rows[0] == (d, 31.5, 30.5, 1.0) and rows[1][1] is None and rows[1][2] == 31.0

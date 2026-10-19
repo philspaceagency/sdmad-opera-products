@@ -90,3 +90,15 @@ def as_of_period(as_of: dt.date, window_days: int, latest: dt.date = None) -> Pe
         as_of = latest
     end = as_of + ONE_DAY
     return Period(end - dt.timedelta(days=window_days), end)
+
+
+def shift_years(period: Period, years: int) -> Period:
+    """The same calendar window `years` later (earlier if negative). Feb 29 falls back to Feb 28."""
+    if period.is_calendar_month:
+        return month_period(period.start.year + years, period.start.month)
+    year = period.start.year + years
+    try:
+        start = period.start.replace(year=year)
+    except ValueError:
+        start = period.start.replace(year=year, day=28)
+    return Period(start, start + dt.timedelta(days=period.length_days))

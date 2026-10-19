@@ -113,3 +113,30 @@ def timeseries_figure(rows: list, product: config.Product):
     ax2.grid(alpha=0.3)
     fig.tight_layout()
     return fig
+
+
+def overlay_png(tif: pathlib.Path, kind: str, product: config.Product):
+    """(PNG data URL, ((south, west), (north, east))) of a GeoTIFF for an ipyleaflet ImageOverlay.
+
+    The raster is reprojected to Web Mercator first so it lines up with the basemap.
+    """
+    import base64
+    import io
+
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
+
+    with rasterio.open(tif) as src:
+        dst_crs = "EPSG:3857"
+        transform, width, height = calculate_default_transform(src.crs, dst_crs, src.width, src.height, *src.bounds)
+        dst = np.full((height, width), config.NODATA, np.float32)
+        reproject(rasterio.band(src, 1), dst, src_transform=src.transform, src_crs=src.crs, dst_transform=transform,
+                  dst_crs=dst_crs, src_nodata=config.NODATA, dst_nodata=config.NODATA,
+                  resampling=Resampling.nearest)
+        bounds = src.bounds
+    data = np.ma.masked_equal(dst, config.NODATA)
+    cmap, norm, _ = _style(kind, product)
+    rgba = cmap.with_extremes(bad=(0, 0, 0, 0))(norm(data))
+    buf = io.BytesIO()
+    plt.imsave(buf, rgba, format="png")
+    url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return url, ((bounds.bottom, bounds.left), (bounds.top, bounds.right))

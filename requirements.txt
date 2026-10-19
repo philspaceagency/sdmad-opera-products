@@ -1,5 +1,13 @@
-earthengine-api>=1.0
-numpy
+# Colab's preinstalled numba requires numpy<2.3; without the pin pip may upgrade numpy and break it.
+numpy<2.3
 matplotlib
 rasterio
 requests
+# SST: Google Earth Engine (GCOM-C/SGLI L3)
+earthengine-api>=1.0
+# LST: Microsoft Planetary Computer (MODIS modis-11A2-061), same stack as sdmad-opera-waterresource
+pystac-client
+planetary-computer
+odc-stac
+pyproj
+affine
