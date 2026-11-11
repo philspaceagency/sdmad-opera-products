@@ -166,3 +166,71 @@ def overlay_png(tif: pathlib.Path, kind: str, product: config.Product):
     plt.imsave(buf, rgba, format="png")
     url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     return url, ((bounds.bottom, bounds.left), (bounds.top, bounds.right))
+
+
+ENSO_COLORS = {"El Nino": "#f4b6a8", "La Nina": "#a9c8ea"}
+
+
+def enso_figure(result):
+    """Nino 3.4 index, PAR anomaly with El Nino / La Nina shading, and the lagged correlation."""
+    import datetime as dt
+
+    def series(rows):
+        return [d for d, _ in rows], np.array([np.nan if v is None else v for _, v in rows])
+
+    def shade(ax):
+        for phase, first, last in result["episodes"]:
+            ax.axvspan(first, last + dt.timedelta(days=30), color=ENSO_COLORS[phase], alpha=0.6, lw=0)
+
+    fig = plt.figure(figsize=(12, 10), dpi=100)
+    gs = fig.add_gridspec(3, 1, height_ratios=[3, 3, 2], hspace=0.35)
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1], sharex=ax1)
+    ax3 = fig.add_subplot(gs[2])
+
+    shade(ax1)
+    d, v = series(result["nino34_3mo"])
+    ax1.plot(d, v, color="#1f4e79", lw=1.8, label="Niño 3.4, GCOM-C (3-month mean)")
+    if result["noaa_oni"]:
+        d, v = series(result["noaa_oni"])
+        ax1.plot(d, v, color="black", lw=1.2, ls="--", label="NOAA ONI (official)")
+    for y in (config.ENSO_THRESHOLD, -config.ENSO_THRESHOLD):
+        ax1.axhline(y, color="#777777", lw=0.8, ls=":")
+    ax1.axhline(0, color="black", lw=0.8)
+    ax1.set_ylabel("Niño 3.4 anomaly (°C)")
+    b = result["baseline"]
+    ax1.set_title(f"El Niño / La Niña (Niño 3.4) vs Philippine Area of Responsibility SST anomaly — "
+                  f"GCOM-C baseline {b[0]}–{b[1]}", fontsize=11)
+    from matplotlib.patches import Patch
+    handles, _ = ax1.get_legend_handles_labels()
+    handles += [Patch(color=ENSO_COLORS["El Nino"], label=f"El Niño ({result['episode_source']})"),
+                Patch(color=ENSO_COLORS["La Nina"], label=f"La Niña ({result['episode_source']})")]
+    ax1.legend(handles=handles, frameon=False, loc="upper left", fontsize=8, ncol=2)
+    ax1.grid(alpha=0.3)
+
+    shade(ax2)
+    d, v = series(result["par"])
+    ax2.bar(d, np.nan_to_num(v), width=25, color=np.where(v >= 0, "#c0392b", "#2b6cb0"), alpha=0.8,
+            label="PAR monthly anomaly")
+    d, v = series(result["par_3mo"])
+    ax2.plot(d, v, color="black", lw=1.4, label="PAR 3-month mean")
+    ax2.axhline(0, color="black", lw=0.8)
+    ax2.set_ylabel("PAR SST anomaly (°C)")
+    ax2.legend(frameon=False, loc="upper left", fontsize=8)
+    ax2.grid(alpha=0.3)
+
+    lags = [lag for lag, _, _ in result["lag_correlation"]]
+    rs = np.array([r for _, r, _ in result["lag_correlation"]])
+    ax3.bar(lags, np.nan_to_num(rs), color=np.where(rs >= 0, "#c0392b", "#2b6cb0"))
+    n = max((k for _, _, k in result["lag_correlation"]), default=0)
+    if n > 3:
+        ax3.axhline(2 / np.sqrt(n), color="#777777", lw=0.8, ls=":")
+        ax3.axhline(-2 / np.sqrt(n), color="#777777", lw=0.8, ls=":")
+    ax3.axhline(0, color="black", lw=0.8)
+    ax3.set_xticks(lags)
+    ax3.set_ylim(-1, 1)
+    ax3.set_xlabel("PAR lags Niño 3.4 by (months)")
+    ax3.set_ylabel("Correlation r")
+    ax3.set_title("Lagged correlation, detrended 3-month means (dotted: ±2/√n, rough 95% level)", fontsize=10)
+    ax3.grid(alpha=0.3)
+    return fig

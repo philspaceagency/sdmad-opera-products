@@ -1,4 +1,4 @@
-"""PAR area-mean monthly time series over the entire GCOM-C record."""
+"""Area-mean monthly time series (PAR by default) over the entire GCOM-C record."""
 
 import datetime as dt
 
@@ -10,9 +10,9 @@ from . import gee
 REDUCE_SCALE_M = 25000
 
 
-def monthly_area_mean(coll: ee.ImageCollection, first: dt.date, latest: dt.date) -> list:
-    """[(month_start_date, mean_degC or None), ...] for every month of the record."""
-    region = gee.par_geometry()
+def monthly_area_mean(coll: ee.ImageCollection, first: dt.date, latest: dt.date, region: ee.Geometry = None) -> list:
+    """[(month_start_date, mean_degC or None), ...] for every month of the record, averaged over `region`."""
+    region = region or gee.par_geometry()
     n_months = (latest.year - first.year) * 12 + latest.month - first.month + 1
     origin = ee.Date(dt.date(first.year, first.month, 1).isoformat())
 

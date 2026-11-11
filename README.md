@@ -47,6 +47,24 @@ cloudy years count the same as clear ones.
 - **LST, both platforms:** the anomaly is computed per platform against its own climatology and
   then averaged. Terra (10:30) and Aqua (13:30) overpass at different local times.
 
+### El Niño comparison (Niño 3.4)
+
+El Niño and La Niña are defined from SST in the **Niño 3.4** region (5°N–5°S, 170°W–120°W), not around
+the Philippines. Notebook cell 9 (`pipeline/enso.py`, `enso.compare()`) shows how the PAR responds:
+
+- **GCOM-C Niño 3.4:** monthly area mean from the same GCOM-C SST, pass and baseline as the PAR series,
+  then a 3-month running mean (ONI-style).
+- **NOAA ONI:** the official index, fetched from NOAA CPC, overlaid. If it can't be reached, the GCOM-C
+  index is used instead. El Niño and La Niña episodes use NOAA's rule: at least 5 consecutive 3-month
+  means beyond ±0.5 °C. The mean offset between the GCOM-C index and the ONI is printed. It comes from
+  the short 2018–2025 baseline, so compare the timing, and use the ONI for the official phase.
+- **Lagged correlation:** correlation of the PAR 3-month anomaly with Niño 3.4 at 0–12 months later. Both
+  series are detrended first, so the shared warming trend doesn't count. With about 8 years of data,
+  read it as indicative only.
+
+Outputs: `outputs/SST/enso/SST_PAR_vs_Nino34_<pass>_baseline<years>.{csv,png}`. The CSV has the monthly
+PAR and Niño 3.4 anomalies, their 3-month means, the ONI and the ENSO phase of each month.
+
 ### Passes and quality
 
 - SST: day + night by default (`--sst-pass D|N|both`).

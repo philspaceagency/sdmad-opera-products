@@ -20,10 +20,14 @@ def par_geometry() -> ee.Geometry:
     return ee.Geometry.Polygon([config.PAR_COORDS], proj=config.CRS, geodesic=False)
 
 
-def collection(product: config.Product, sat_pass: str = None) -> ee.ImageCollection:
-    """Full GCOM-C time series for `product`, converted to degC and bounded to PAR."""
+def nino34_geometry() -> ee.Geometry:
+    return ee.Geometry.Rectangle(list(config.NINO34_BOUNDS), proj=config.CRS, geodesic=False)
+
+
+def collection(product: config.Product, sat_pass: str = None, region: ee.Geometry = None) -> ee.ImageCollection:
+    """Full GCOM-C time series for `product`, converted to degC and bounded to `region` (default PAR)."""
     sat_pass = sat_pass or product.default_pass
-    coll = ee.ImageCollection(product.collection).filterBounds(par_geometry())
+    coll = ee.ImageCollection(product.collection).filterBounds(region or par_geometry())
     if sat_pass != "both":
         coll = coll.filter(ee.Filter.eq("SATELLITE_DIRECTION", sat_pass))
 
