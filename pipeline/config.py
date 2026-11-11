@@ -39,6 +39,7 @@ class Product:
     temp_vis: tuple     # (min, max) degC for temperature quicklooks
     long_name: str
     source: str = "gee"         # "gee" (Earth Engine) or "mpc" (Microsoft Planetary Computer)
+    daily: bool = False         # also write one map per day (needs a daily source)
     pixel_deg: float = PIXEL_DEG
     passes: tuple = ("D", "N", "both")
 
@@ -54,6 +55,7 @@ SST = Product(
     outputs=("temperature", "anomaly"),
     temp_vis=(24.0, 32.0),
     long_name="Sea Surface Temperature",
+    daily=True,
 )
 
 LST = Product(
@@ -82,6 +84,12 @@ MODIS_DEFAULT_PLATFORM = "both"
 MODIS_MAX_LST_ERROR = 1
 
 PRODUCTS = {p.name: p for p in (SST, LST)}
+
+# Climatology baseline: inclusive years. Later years (2026 onwards) are never part of the climatology.
+BASELINE = (2018, 2025)
+# A one-day climatology from 8 years would be mostly cloud gaps, so each day is compared with the
+# mean of day +/- this many days in every baseline year (15-day window).
+DAILY_CLIM_HALF_WINDOW = 7
 
 # Anomaly quicklook: diverging, discrete steps (same style as NOAA/Climate Reanalyzer maps).
 ANOMALY_VIS = (-3.0, 3.0, 0.5)  # (min, max, step) degC

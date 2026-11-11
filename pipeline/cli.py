@@ -1,33 +1,22 @@
 """Command-line entry point.
 
 Examples:
-    python -m pipeline                                  # last complete month, SST + LST
-    python -m pipeline --month 2026-09
-    python -m pipeline --months 2026-01:2026-09 --products SST
-    python -m pipeline --start 2026-10-01 --end 2026-10-07
-    python -m pipeline --as-of 2026-10-15 --window-days 7   # 7 days ending 2026-10-15
-    python -m pipeline --as-of latest                       # 30 days ending at the latest image
-    python -m pipeline --month 2026-09 --export drive         # SST as GEE tasks to Google Drive
-    python -m pipeline --products LST --lst-platform terra --lst-pass N
+    python -m pipeline --start 2026-10-01 --end 2026-10-15
+    python -m pipeline --start 2026-09-01 --end 2026-10-31          # only what is missing is processed
+    python -m pipeline --start 2026-09-01 --end 2026-09-30 --products SST --sst-pass N
+    python -m pipeline --start 2026-01-01 --end 2026-09-30 --products LST --lst-platform terra
 """
 
 import argparse
-import datetime as dt
-import functools
 import pathlib
 
-from . import config, gee, mpc, periods, runner
+from . import config, gee, mpc, runner
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="GCOM-C SST/LST products for the Philippine Area of Responsibility")
-    when = p.add_mutually_exclusive_group()
-    when.add_argument("--month", action="append", help="Target month YYYY-MM (repeatable)")
-    when.add_argument("--months", help="Inclusive month range YYYY-MM:YYYY-MM")
-    when.add_argument("--start", help="Custom period start YYYY-MM-DD (use with --end)")
-    when.add_argument("--as-of", help="Window ending on this date (YYYY-MM-DD or 'latest')")
-    p.add_argument("--end", help="Custom period end YYYY-MM-DD, inclusive")
-    p.add_argument("--window-days", type=int, default=30, help="Window length for --as-of (default 30)")
+    p = argparse.ArgumentParser(description="GCOM-C SST / MODIS LST for the Philippine Area of Responsibility")
+    p.add_argument("--start", required=True, help="First day, YYYY-MM-DD")
+    p.add_argument("--end", required=True, help="Last day (inclusive), YYYY-MM-DD")
     p.add_argument("--products", nargs="+", default=list(config.PRODUCTS), choices=list(config.PRODUCTS))
     p.add_argument("--sst-pass", choices=list(config.SST.passes), default=config.SST.default_pass,
                    help="GCOM-C pass for SST (default: both)")
@@ -35,31 +24,16 @@ def parse_args(argv=None):
                    help="MODIS LST day (D) or night (N) (default: D)")
     p.add_argument("--lst-platform", choices=["both", *config.MODIS_PLATFORMS], default=config.MODIS_DEFAULT_PLATFORM,
                    help="MODIS platform(s) for LST (default: both, each against its own climatology)")
-    p.add_argument("--baseline", help="Climatology years FIRST:LAST (default: entire record)")
-    p.add_argument("--export", choices=["local", "drive"], default="local",
-                   help="SST only: 'drive' runs Earth Engine export tasks instead of downloading")
+    p.add_argument("--baseline", default=f"{config.BASELINE[0]}:{config.BASELINE[1]}",
+                   help="Climatology years FIRST:LAST, inclusive (default: %(default)s)")
+    p.add_argument("--out", default="outputs", type=pathlib.Path, help="Output root")
     p.add_argument("--cache", default="cache", type=pathlib.Path,
                    help="Planetary Computer search + MODIS composite cache (makes LST reruns cheap)")
-    p.add_argument("--out", default="outputs", type=pathlib.Path, help="Local output root")
     p.add_argument("--no-png", action="store_true", help="Skip PNG quicklooks")
+    p.add_argument("--no-gif", action="store_true", help="Skip the GIF of the range")
+    p.add_argument("--gif-fps", type=float, default=4)
     p.add_argument("--project", default=config.GEE_PROJECT)
-    args = p.parse_args(argv)
-    if bool(args.start) != bool(args.end):
-        p.error("--start and --end must be used together")
-    return args
-
-
-def targets_from_args(args):
-    """Callable latest-date -> periods, so defaults can depend on each product's record."""
-    as_of = None
-    if args.as_of and args.as_of != "latest":
-        as_of = dt.date.fromisoformat(args.as_of)
-    return functools.partial(
-        runner.resolve_targets,
-        months=args.month or (periods.month_labels(*args.months.split(":")) if args.months else None),
-        start=args.start, end=args.end,
-        as_of=as_of, window_days=args.window_days if args.as_of else None,
-    )
+    return p.parse_args(argv)
 
 
 def main(argv=None):
@@ -67,12 +41,13 @@ def main(argv=None):
     if "SST" in args.products:
         gee.initialize(args.project)
     mpc.set_cache_dir(args.cache)
-    baseline = tuple(int(y) for y in args.baseline.split(":")) if args.baseline else None
+    baseline = tuple(int(y) for y in args.baseline.split(":"))
     passes = {"SST": args.sst_pass, "LST": args.lst_pass}
     for name in args.products:
-        runner.run_product(
-            config.PRODUCTS[name], targets_from_args(args), sat_pass=passes[name], baseline=baseline,
-            platform=args.lst_platform, export_mode=args.export, out=args.out, png=not args.no_png,
+        runner.run_range(
+            config.PRODUCTS[name], args.start, args.end, sat_pass=passes[name], baseline=baseline,
+            platform=args.lst_platform, out=args.out, png=not args.no_png, gif=not args.no_gif,
+            gif_fps=args.gif_fps,
         )
 
 
