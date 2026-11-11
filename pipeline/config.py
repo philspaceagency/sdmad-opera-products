@@ -17,6 +17,13 @@ PAR_COORDS = [
 ]
 PAR_BOUNDS = (115.0, 5.0, 135.0, 25.0)  # (west, south, east, north)
 
+# Nino 3.4 region (5N-5S, 170W-120W), where El Nino / La Nina is defined (NOAA ONI, PAGASA).
+NINO34_BOUNDS = (-170.0, -5.0, -120.0, 5.0)  # (west, south, east, north)
+# ONI thresholds: El Nino / La Nina when the 3-month mean anomaly is beyond +/-0.5 degC
+# for at least 5 consecutive overlapping seasons.
+ENSO_THRESHOLD = 0.5
+ENSO_MIN_SEASONS = 5
+
 # GCOM-C L3 products are on a 1/24 degree (~4.6 km) grid.
 PIXEL_DEG = 1.0 / 24.0
 # MODIS 1 km LST is resampled to 1/96 degree (~1.04 km), which nests 4x4 inside the SST grid.
