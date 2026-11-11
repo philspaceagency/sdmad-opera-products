@@ -55,7 +55,7 @@ def composite(coll: ee.ImageCollection, period: Period) -> tuple:
 
 
 def climatology(coll: ee.ImageCollection, period: Period, first_year: int, last_year: int) -> tuple:
-    """Mean of the same calendar window across every year of the record.
+    """Mean of the same calendar window across the baseline years `first_year`..`last_year`.
 
     Each year is composited first and the yearly composites are then averaged, so
     years with more clear-sky days do not dominate the baseline.
@@ -68,7 +68,3 @@ def climatology(coll: ee.ImageCollection, period: Period, first_year: int, last_
         yearly.append(sub.mean().set("year", year, "n", sub.size()))
     years = ee.ImageCollection.fromImages(yearly).filter(ee.Filter.gt("n", 0))
     return years.mean(), years.size()
-
-
-def anomaly(temperature: ee.Image, clim: ee.Image) -> ee.Image:
-    return temperature.subtract(clim)

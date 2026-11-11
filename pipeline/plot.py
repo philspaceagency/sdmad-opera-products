@@ -22,27 +22,53 @@ def _read(path: pathlib.Path):
     return np.ma.masked_equal(data, config.NODATA), (b.left, b.right, b.bottom, b.top)
 
 
-def quicklook(tif: pathlib.Path, png: pathlib.Path, kind: str, product: config.Product, title: str) -> pathlib.Path:
+def _draw(fig, ax, tif: pathlib.Path, kind: str, product: config.Product, title: str):
     data, extent = _read(tif)
     cmap, norm, label = _style(kind, product)
-
-    fig, ax = plt.subplots(figsize=(7, 7.6), dpi=150)
     im = ax.imshow(data, extent=extent, cmap=cmap, norm=norm, interpolation="nearest")
     lon, lat = zip(*config.PAR_COORDS)
     ax.plot(lon, lat, color="black", linewidth=1.2)
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
     ax.set_title(title, fontsize=11)
-    cbar = fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.08, fraction=0.05, extend="both")
+    cbar = fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.11, fraction=0.05, extend="both")
     cbar.set_label(label)
     if kind == "anomaly":
         vmin, vmax, _ = config.ANOMALY_VIS
         cbar.set_ticks(np.arange(vmin, vmax + 0.01, 1.0))
     fig.tight_layout()
+
+
+def quicklook(tif: pathlib.Path, png: pathlib.Path, kind: str, product: config.Product, title: str) -> pathlib.Path:
+    fig, ax = plt.subplots(figsize=(7, 7.6), dpi=150)
+    _draw(fig, ax, tif, kind, product, title)
     png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(png)
     plt.close(fig)
     return png
+
+
+def make_gif(frames: list, kind: str, product: config.Product, path: pathlib.Path, fps: float = 4,
+             subtitle: str = "") -> pathlib.Path:
+    """Animated GIF from [(frame label, GeoTIFF), ...], all frames on the same colour scale."""
+    from PIL import Image
+
+    name = f"{product.name} {'anomaly' if kind == 'anomaly' else 'temperature'}"
+    title = lambda label: f"{name} — {label}" + (f"\n{subtitle}" if subtitle else "")  # noqa: E731
+    fig, ax = plt.subplots(figsize=(6, 6.6), dpi=80)
+    _draw(fig, ax, frames[0][1], kind, product, title(frames[0][0]))
+    im = ax.images[0]
+    images = []
+    for i, (label, tif) in enumerate(frames):
+        if i:                                   # same axes, colour bar and outline: only data and title change
+            im.set_data(_read(tif)[0])
+            ax.set_title(title(label), fontsize=11)
+        fig.canvas.draw()
+        images.append(Image.fromarray(np.asarray(fig.canvas.buffer_rgba())).convert("RGB"))
+    plt.close(fig)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    images[0].save(path, save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0)
+    return path
 
 
 def _style(kind: str, product: config.Product):

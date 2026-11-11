@@ -74,8 +74,8 @@ def test_qc_and_conversion():
 
 def test_shift_years_keeps_window():
     assert shift_years(parse_month("2024-02"), -1) == parse_month("2023-02")
-    from pipeline.periods import custom_period
-    p = shift_years(custom_period("2024-02-29", "2024-03-06"), 1)
+    from pipeline.periods import time_range
+    p = shift_years(time_range("2024-02-29", "2024-03-06"), 1)
     assert p.start == dt.date(2025, 2, 28) and p.length_days == 7
 
 
@@ -128,7 +128,7 @@ def test_monthly_series(fake_mpc, tmp_path):
     assert abs(values[dt.date(2024, 9, 1)] - 31.0) < 0.05 and values[dt.date(2024, 8, 1)] is None
 
 
-def test_runner_writes_lst_temperature_and_anomaly(fake_mpc, tmp_path, monkeypatch):
+def test_runner_writes_lst_monthly_temperature_and_anomaly(fake_mpc, tmp_path, monkeypatch):
     import dataclasses
 
     from pipeline import runner
@@ -137,13 +137,24 @@ def test_runner_writes_lst_temperature_and_anomaly(fake_mpc, tmp_path, monkeypat
     monkeypatch.setattr(modis, "latest_date", lambda plats: dt.date(2024, 12, 31))
     product = dataclasses.replace(config.LST, pixel_deg=0.1)
     out = tmp_path / "outputs"
-    results = runner.run_product(product, [parse_month("2024-09")], platform="terra", out=out,
-                                 log=lambda *_: None)
-    assert {r["kind"] for r in results} == {"temperature", "anomaly"}
+    runner.run_range(product, "2024-09-01", "2024-09-30", platform="terra", baseline=(2023, 2024), out=out,
+                     log=None)
     for kind, expected in (("temperature", 31.0), ("anomaly", 1.0)):
-        tif = out / "LST" / kind / f"LST_{kind}_2024-09.tif"
+        tif = out / "LST" / "2024" / "09" / "monthly" / f"LST_{kind}_2024-09.tif"
         assert tif.with_suffix(".png").exists() and tif.with_suffix(".json").exists()
         with rasterio.open(tif) as ds:
             data = ds.read(1, masked=True)
             assert ds.crs.to_epsg() == 4326 and ds.nodata == config.NODATA
             assert np.allclose(data.compressed(), expected, atol=0.02)
+    assert (out / "LST" / "animations" / "LST_anomaly_20240901_20240930.gif").exists()
+
+
+def test_baseline_excludes_later_years(fake_mpc, tmp_path):
+    # 2023 (in baseline) 28 degC, 2024 (outside) 30 degC: climatology must be 28, anomaly +2
+    for year, celsius in ((2023, 28.0), (2024, 30.0)):
+        fake_mpc.append(make_item(tmp_path, "terra", dt.date(year, 9, 6), 29, 7, celsius))
+    temp, anom, _, info = modis.temperature_and_anomaly(
+        parse_month("2024-09"), "D", "terra", baseline=(2018, 2023), latest=dt.date(2024, 12, 31),
+        pixel_deg=0.1, log=None)
+    assert info["n_climatology_years"] == 1
+    assert np.allclose(anom[np.isfinite(anom)], 2.0, atol=0.02)

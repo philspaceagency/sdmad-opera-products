@@ -39,23 +39,6 @@ def download_geotiff(image: ee.Image, band: str, path: pathlib.Path, tags: dict 
     return path
 
 
-def export_to_drive(image: ee.Image, band: str, folder: str, name: str) -> ee.batch.Task:
-    grid = _grid()
-    task = ee.batch.Export.image.toDrive(
-        image=_prepare(image, band),
-        description=name[:100],
-        folder=folder,
-        fileNamePrefix=name,
-        crs=grid["crs"],
-        crsTransform=grid["crs_transform"],
-        dimensions=f"{grid['dimensions'][0]}x{grid['dimensions'][1]}",
-        fileFormat="GeoTIFF",
-        maxPixels=int(1e9),
-    )
-    task.start()
-    return task
-
-
 def write_geotiff(array, gbox, band: str, path: pathlib.Path, tags: dict = None) -> pathlib.Path:
     """Write a float32 array on an odc-geo GeoBox (NaN -> NODATA)."""
     import numpy as np

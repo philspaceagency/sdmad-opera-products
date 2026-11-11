@@ -1,8 +1,10 @@
-"""Target-period helpers (pure Python, no Earth Engine dependency)."""
+"""Date-range helpers (pure Python, no Earth Engine dependency)."""
 
 import calendar
 import datetime as dt
 from dataclasses import dataclass
+
+ONE_DAY = dt.timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -11,20 +13,20 @@ class Period:
     end: dt.date    # exclusive
 
     @property
+    def last(self) -> dt.date:
+        return self.end - ONE_DAY
+
+    @property
     def label(self) -> str:
         if self.is_calendar_month:
             return self.start.strftime("%Y-%m")
-        last = self.end - dt.timedelta(days=1)
-        if last == self.start:
+        if self.last == self.start:
             return self.start.strftime("%Y%m%d")
-        return f"{self.start:%Y%m%d}_{last:%Y%m%d}"
+        return f"{self.start:%Y%m%d}_{self.last:%Y%m%d}"
 
     @property
     def is_calendar_month(self) -> bool:
-        if self.start.day != 1:
-            return False
-        days = calendar.monthrange(self.start.year, self.start.month)[1]
-        return self.end == self.start + dt.timedelta(days=days)
+        return self.start.day == 1 and self == month_period(self.start.year, self.start.month)
 
     @property
     def length_days(self) -> int:
@@ -43,53 +45,39 @@ def parse_month(text: str) -> Period:
     return month_period(year, month)
 
 
-def month_range(first: str, last: str) -> list:
-    """All calendar months from `first` to `last` inclusive ('YYYY-MM')."""
-    start, stop = parse_month(first), parse_month(last)
-    if stop.start < start.start:
-        raise ValueError(f"{last} is before {first}")
-    periods, cur = [], start
-    while cur.start <= stop.start:
-        periods.append(cur)
-        cur = month_period(cur.end.year, cur.end.month)
-    return periods
+def time_range(start, end) -> Period:
+    """Inclusive start/end (ISO strings or dates) -> Period with exclusive end."""
+    s = start if isinstance(start, dt.date) else dt.date.fromisoformat(start)
+    e = end if isinstance(end, dt.date) else dt.date.fromisoformat(end)
+    if e < s:
+        raise ValueError(f"end {e} is before start {s}")
+    return Period(s, e + ONE_DAY)
 
 
-def custom_period(start: str, end: str) -> Period:
-    """Inclusive ISO dates -> Period with exclusive end."""
-    s = dt.date.fromisoformat(start)
-    e = dt.date.fromisoformat(end) + dt.timedelta(days=1)
-    if e <= s:
-        raise ValueError("end must be on or after start")
-    if (e - s).days > 366:
-        raise ValueError("custom periods longer than a year are not supported for anomalies")
-    return Period(s, e)
+def split_by_month(period: Period) -> list:
+    """2026-09-20..2026-10-15 -> [2026-09-20..09-30, 2026-10-01..10-15]."""
+    chunks, cur = [], period.start
+    while cur < period.end:
+        month = month_period(cur.year, cur.month)
+        chunks.append(Period(cur, min(month.end, period.end)))
+        cur = month.end
+    return chunks
 
 
-def last_complete_month(latest: dt.date) -> Period:
-    """Latest calendar month fully covered by data available up to `latest`."""
-    month = month_period(latest.year, latest.month)
-    if latest >= month.end - dt.timedelta(days=1):
-        return month
-    prev = month.start - dt.timedelta(days=1)
-    return month_period(prev.year, prev.month)
+def days(period: Period) -> list:
+    return [period.start + dt.timedelta(days=i) for i in range(period.length_days)]
 
 
-ONE_DAY = dt.timedelta(days=1)
+def centered_window(day: dt.date, half_width: int) -> Period:
+    """`day` +/- `half_width` days (used for the daily climatology)."""
+    return Period(day - dt.timedelta(days=half_width), day + dt.timedelta(days=half_width + 1))
 
 
-def month_labels(first: str, last: str) -> list:
-    return [p.label for p in month_range(first, last)]
-
-
-def as_of_period(as_of: dt.date, window_days: int, latest: dt.date = None) -> Period:
-    """`window_days` days ending on `as_of` (inclusive), clamped to the latest available date."""
-    if window_days < 1 or window_days > 366:
-        raise ValueError("window_days must be between 1 and 366")
-    if latest is not None and as_of > latest:
-        as_of = latest
-    end = as_of + ONE_DAY
-    return Period(end - dt.timedelta(days=window_days), end)
+def union(a: Period, b: Period) -> Period:
+    """Smallest period covering both."""
+    if a is None:
+        return b
+    return Period(min(a.start, b.start), max(a.end, b.end))
 
 
 def shift_years(period: Period, years: int) -> Period:
