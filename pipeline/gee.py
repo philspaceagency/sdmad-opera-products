@@ -72,3 +72,31 @@ def climatology(coll: ee.ImageCollection, period: Period, first_year: int, last_
         yearly.append(sub.mean().set("year", year, "n", sub.size()))
     years = ee.ImageCollection.fromImages(yearly).filter(ee.Filter.gt("n", 0))
     return years.mean(), years.size()
+
+
+def oisst_collection(region: ee.Geometry = None) -> ee.ImageCollection:
+    """NOAA OISST v2.1 daily SST in degC, bilinear-resampled so it can be added to the finer GCOM-C grid."""
+    def to_celsius(img):
+        return (img.select(config.OISST_BAND).multiply(config.OISST_SCALE).resample("bilinear")
+                .rename("SST").copyProperties(img, ["system:time_start"]))
+
+    return ee.ImageCollection(config.OISST_COLLECTION).filterBounds(region or par_geometry()).map(to_celsius)
+
+
+def reference_offset(window: Period, baseline: tuple, reference: tuple) -> tuple:
+    """OISST clim(baseline) - clim(reference) for `window`, gaps near the coast filled from neighbours.
+
+    Same per-year-then-across-years averaging as the GCOM-C climatology. Returns (offset image,
+    number of baseline years, number of reference years).
+    """
+    oisst = oisst_collection()
+    recent, n_base = climatology(oisst, window, *baseline)
+    standard, n_ref = climatology(oisst, window, *reference)
+    delta = recent.subtract(standard)
+    filled = delta.unmask(delta.focalMean(config.OISST_FILL_RADIUS_M, "circle", "meters"))
+    return filled.rename("offset"), n_base, n_ref
+
+
+def area_mean(image: ee.Image, region: ee.Geometry = None, scale_m: float = 25000) -> ee.Number:
+    return ee.Number(image.reduceRegion(ee.Reducer.mean(), region or par_geometry(), scale_m,
+                                        bestEffort=True).values().get(0))

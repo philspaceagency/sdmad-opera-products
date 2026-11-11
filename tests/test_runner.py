@@ -128,3 +128,31 @@ def test_rejects_mixed_lst_pass(tmp_path):
     with pytest.raises(ValueError):
         runner.run_range(config.LST, "2026-10-01", "2026-10-02", sat_pass="both", out=tmp_path,
                          backend=FakeBackend(dt.date(2026, 11, 1)), log=None)
+
+
+class FakeReferenceBackend(FakeBackend):
+    kinds = runner.KINDS + (runner.reference_kind((1991, 2020)),)
+
+    def compute(self, period, clim_window):
+        values, info = super().compute(period, clim_window)
+        values["anomaly1991-2020"] = values["anomaly"] + 0.3
+        return values, {**info, "reference_offset_par_mean_degC": 0.3}
+
+
+def test_reference_kind_is_added_without_redoing_existing_outputs(tmp_path):
+    b = FakeBackend(latest=dt.date(2026, 11, 5))
+    run(tmp_path, b, "2026-10-01", "2026-10-03", gif=False)
+    r = FakeReferenceBackend(latest=dt.date(2026, 11, 5))
+    s = run(tmp_path, r, "2026-10-01", "2026-10-03", gif=False)
+    assert s["written"] and all("anomaly1991-2020" in t.name for t in s["written"])
+    assert len(s["written"]) == 4                                   # 3 daily + 1 monthly
+    tif = tmp_path / "SST/2026/10/daily/SST_anomaly1991-2020_20261002.tif"
+    meta = json.loads(tif.with_suffix(".json").read_text())
+    assert meta["anomaly_baseline"] == "1991-2020" and "OISST" in meta["method"]
+    import rasterio
+    with rasterio.open(tif) as ds:
+        assert np.allclose(ds.read(1, masked=True).compressed(), 0.8)
+        assert ds.descriptions[0] == "SST_anomaly1991_2020"
+    # nothing left to do on a rerun
+    r.calls.clear()
+    assert not run(tmp_path, r, "2026-10-01", "2026-10-03", gif=False)["written"] and r.calls == []

@@ -17,8 +17,8 @@ Temperature **and anomaly** maps over the Philippine Area of Responsibility (PAR
 Give a start and end date (both inclusive). The range is split by calendar month:
 
 ```
-outputs/<PRODUCT>/<YYYY>/<MM>/daily/     <PRODUCT>_{temperature,anomaly}_<YYYYMMDD>.{tif,png,json}   (SST)
-outputs/<PRODUCT>/<YYYY>/<MM>/monthly/   <PRODUCT>_{temperature,anomaly}_<YYYY-MM>.{tif,png,json}
+outputs/<PRODUCT>/<YYYY>/<MM>/daily/     <PRODUCT>_{temperature,anomaly,anomaly1991-2020}_<YYYYMMDD>.{tif,png,json}   (SST)
+outputs/<PRODUCT>/<YYYY>/<MM>/monthly/   <PRODUCT>_{temperature,anomaly[,anomaly1991-2020]}_<YYYY-MM>.{tif,png,json}
 outputs/<PRODUCT>/animations/            <PRODUCT>_{temperature,anomaly}_<start>_<end>.gif
 ```
 
@@ -46,6 +46,31 @@ cloudy years count the same as clear ones.
   `DAILY_CLIM_HALF_WINDOW`). One calendar day across 8 years would be mostly cloud gaps.
 - **LST, both platforms:** the anomaly is computed per platform against its own climatology and
   then averaged. Terra (10:30) and Aqua (13:30) overpass at different local times.
+
+### SST anomaly on the 1991–2020 baseline (OISST offset)
+
+GCOM-C only goes back to 2018. To compare with products on the WMO-standard 1991–2020 baseline, SST also gets
+`SST_anomaly1991-2020_*`:
+
+```
+anomaly(1991–2020) = GCOM-C anomaly(2018–2025) + [OISST clim(2018–2025) − OISST clim(1991–2020)]
+```
+
+- **Offset source:** NOAA OISST v2.1 (`NOAA/CDR/OISST/V2_1`, 0.25°, 1981 onwards) supplies how much warmer
+  2018–2025 was than 1991–2020, per pixel and for the same window: 15 days around the day for daily maps,
+  the same span for monthly maps.
+- **Resolution:** GCOM-C keeps its 4.6 km detail. The offset is resampled bilinearly. Coastal pixels where
+  OISST is masked take it from a 75 km neighbourhood (`OISST_FILL_RADIUS_M`).
+- **Equivalence:** this is the same as rebuilding GCOM-C's climatology for 1991–2020, with OISST giving the
+  long-term level and GCOM-C its sensor-specific detail.
+- **Assumption:** the GCOM-C vs OISST difference does not change over time.
+- **Not fixed by the offset:** the 8-year noise of the GCOM-C climatology, and spreads or percentiles.
+- **Options:** `--reference-baseline 1991:2020` (default), `--no-reference` to skip. Notebook:
+  `USE_REFERENCE_BASELINE`. Turning it on later only adds the missing files.
+- **Check:** notebook cell 10 (`pipeline/reference.py`) compares, for the PAR and Niño 3.4 means, the
+  adjusted GCOM-C anomaly with OISST's own 1991–2020 anomaly (and the NOAA ONI). It reports mean difference,
+  RMSE and correlation, plus the offset for each calendar month. Outputs go to
+  `outputs/SST/reference/`.
 
 ### El Niño comparison (Niño 3.4)
 

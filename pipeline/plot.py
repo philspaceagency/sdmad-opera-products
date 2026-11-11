@@ -33,7 +33,7 @@ def _draw(fig, ax, tif: pathlib.Path, kind: str, product: config.Product, title:
     ax.set_title(title, fontsize=11)
     cbar = fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.11, fraction=0.05, extend="both")
     cbar.set_label(label)
-    if kind == "anomaly":
+    if kind.startswith("anomaly"):
         vmin, vmax, _ = config.ANOMALY_VIS
         cbar.set_ticks(np.arange(vmin, vmax + 0.01, 1.0))
     fig.tight_layout()
@@ -53,7 +53,7 @@ def make_gif(frames: list, kind: str, product: config.Product, path: pathlib.Pat
     """Animated GIF from [(frame label, GeoTIFF), ...], all frames on the same colour scale."""
     from PIL import Image
 
-    name = f"{product.name} {'anomaly' if kind == 'anomaly' else 'temperature'}"
+    name = f"{product.name} {kind_name(kind)}"
     title = lambda label: f"{name} — {label}" + (f"\n{subtitle}" if subtitle else "")  # noqa: E731
     fig, ax = plt.subplots(figsize=(6, 6.6), dpi=80)
     _draw(fig, ax, frames[0][1], kind, product, title(frames[0][0]))
@@ -71,14 +71,21 @@ def make_gif(frames: list, kind: str, product: config.Product, path: pathlib.Pat
     return path
 
 
+def kind_name(kind: str) -> str:
+    """'temperature', 'anomaly' or 'anomaly vs 1991-2020' (OISST-adjusted reference baseline)."""
+    if kind.startswith("anomaly") and kind != "anomaly":
+        return f"anomaly vs {kind[len('anomaly'):]}"
+    return kind
+
+
 def _style(kind: str, product: config.Product):
-    if kind == "anomaly":
+    if kind.startswith("anomaly"):
         vmin, vmax, step = config.ANOMALY_VIS
         levels = np.arange(vmin, vmax + step / 2, step)
         base = plt.get_cmap("RdBu_r", len(levels) + 1)
         cmap = ListedColormap(base(np.arange(1, len(levels)))).with_extremes(
             under=base(0), over=base(len(levels)), bad=NODATA_COLOR)
-        return cmap, BoundaryNorm(levels, cmap.N), f"{product.name} anomaly (°C)"
+        return cmap, BoundaryNorm(levels, cmap.N), f"{product.name} {kind_name(kind)} (°C)"
     cmap = plt.get_cmap("turbo").with_extremes(bad=NODATA_COLOR)
     return cmap, plt.Normalize(*product.temp_vis), f"{product.name} (°C)"
 
@@ -105,11 +112,11 @@ def results_panel(results: list):
             im = ax.imshow(data, extent=extent, cmap=cmap, norm=norm, interpolation="nearest")
             lon, lat = zip(*config.PAR_COORDS)
             ax.plot(lon, lat, color="black", linewidth=1)
-            ax.set_title(f"{name} {r['kind']} — {label}")
+            ax.set_title(f"{name} {kind_name(r['kind'])} — {label}")
             fig.colorbar(im, ax=ax, orientation="horizontal", pad=0.06, fraction=0.05,
                          extend="both").set_label(cbar_label)
             if data.count():
-                ax.text(0.01, 0.01, f"PAR mean {data.mean():+.2f} °C" if r["kind"] == "anomaly"
+                ax.text(0.01, 0.01, f"PAR mean {data.mean():+.2f} °C" if r["kind"].startswith("anomaly")
                         else f"PAR mean {data.mean():.2f} °C", transform=ax.transAxes, fontsize=9,
                         bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"})
     fig.tight_layout()
@@ -233,4 +240,55 @@ def enso_figure(result):
     ax3.set_ylabel("Correlation r")
     ax3.set_title("Lagged correlation, detrended 3-month means (dotted: ±2/√n, rough 95% level)", fontsize=10)
     ax3.grid(alpha=0.3)
+    return fig
+
+
+def reference_figure(result):
+    """GCOM-C anomaly (short baseline), the OISST-adjusted version and OISST's own reference anomaly."""
+    from . import enso
+
+    def series(rows):
+        return [d for d, _ in rows], np.array([np.nan if v is None else v for _, v in rows])
+
+    b, ref = result["baseline"], result["reference"]
+    names = list(result["regions"])
+    fig, axes = plt.subplots(len(names) + 1, 1, figsize=(12, 4.2 * len(names) + 2.6), dpi=100,
+                             gridspec_kw={"height_ratios": [3] * len(names) + [2]})
+    for ax, name in zip(axes, names):
+        r = result["regions"][name]
+        smooth = name.startswith("Nino")
+        prep = enso.running_mean if smooth else (lambda rows: rows)
+        d, v = series(prep(r["gcomc"]))
+        ax.plot(d, v, color="#9aa5b1", lw=1.2, label=f"GCOM-C vs {b[0]}–{b[1]}")
+        d, v = series(prep(r["gcomc_adjusted"]))
+        ax.plot(d, v, color="#1f4e79", lw=1.8, label=f"GCOM-C adjusted to {ref[0]}–{ref[1]} (OISST offset)")
+        d, v = series(prep(r["oisst"]))
+        ax.plot(d, v, color="#c0392b", lw=1.2, ls="--", label=f"OISST vs {ref[0]}–{ref[1]}")
+        if smooth and r.get("noaa_oni"):
+            d, v = series(r["noaa_oni"])
+            ax.plot(d, v, color="black", lw=1.0, ls=":", label="NOAA ONI")
+        ax.axhline(0, color="black", lw=0.8)
+        stats = r["agreement_vs_oisst"]
+        text = "" if not stats else (f"adjusted − OISST: mean {stats['mean_diff']:+.2f} °C, "
+                                     f"RMSE {stats['rmse']:.2f} °C, r = {stats['r']:.2f}")
+        ax.set_title(f"{name}{' (3-month means)' if smooth else ''} — {text}", fontsize=10)
+        ax.set_ylabel("Anomaly (°C)")
+        ax.legend(frameon=False, loc="upper left", fontsize=8, ncol=2)
+        ax.grid(alpha=0.3)
+
+    ax = axes[-1]
+    months = np.arange(1, 13)
+    width = 0.8 / len(names)
+    for i, name in enumerate(names):
+        offs = result["regions"][name]["offsets"]
+        ax.bar(months + (i - (len(names) - 1) / 2) * width, [offs.get(m, np.nan) for m in months], width,
+               label=name)
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_xticks(months)
+    ax.set_xticklabels(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])
+    ax.set_ylabel("Offset (°C)")
+    ax.set_title(f"OISST offset per calendar month: mean {b[0]}–{b[1]} minus mean {ref[0]}–{ref[1]}", fontsize=10)
+    ax.legend(frameon=False, fontsize=8)
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
     return fig
