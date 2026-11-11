@@ -5,6 +5,7 @@ Examples:
     python -m pipeline --start 2026-09-01 --end 2026-10-31          # only what is missing is processed
     python -m pipeline --start 2026-09-01 --end 2026-09-30 --products SST --sst-pass N
     python -m pipeline --start 2026-01-01 --end 2026-09-30 --products LST --lst-platform terra
+    python -m pipeline --start 2026-10-01 --end 2026-10-31 --no-reference    # skip the 1991-2020 SST anomaly
 """
 
 import argparse
@@ -26,6 +27,10 @@ def parse_args(argv=None):
                    help="MODIS platform(s) for LST (default: both, each against its own climatology)")
     p.add_argument("--baseline", default=f"{config.BASELINE[0]}:{config.BASELINE[1]}",
                    help="Climatology years FIRST:LAST, inclusive (default: %(default)s)")
+    p.add_argument("--reference-baseline", default=f"{config.REFERENCE_BASELINE[0]}:{config.REFERENCE_BASELINE[1]}",
+                   help="SST only: also write the anomaly moved to this baseline with the NOAA OISST offset "
+                        "(default: %(default)s)")
+    p.add_argument("--no-reference", action="store_true", help="Skip the reference-baseline SST anomaly")
     p.add_argument("--out", default="outputs", type=pathlib.Path, help="Output root")
     p.add_argument("--cache", default="cache", type=pathlib.Path,
                    help="Planetary Computer search + MODIS composite cache (makes LST reruns cheap)")
@@ -42,12 +47,13 @@ def main(argv=None):
         gee.initialize(args.project)
     mpc.set_cache_dir(args.cache)
     baseline = tuple(int(y) for y in args.baseline.split(":"))
+    reference = None if args.no_reference else tuple(int(y) for y in args.reference_baseline.split(":"))
     passes = {"SST": args.sst_pass, "LST": args.lst_pass}
     for name in args.products:
         runner.run_range(
             config.PRODUCTS[name], args.start, args.end, sat_pass=passes[name], baseline=baseline,
             platform=args.lst_platform, out=args.out, png=not args.no_png, gif=not args.no_gif,
-            gif_fps=args.gif_fps,
+            gif_fps=args.gif_fps, reference=reference if name == "SST" else None,
         )
 
 

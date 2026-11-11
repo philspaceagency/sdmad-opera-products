@@ -94,6 +94,17 @@ PRODUCTS = {p.name: p for p in (SST, LST)}
 
 # Climatology baseline: inclusive years. Later years (2026 onwards) are never part of the climatology.
 BASELINE = (2018, 2025)
+# Optional second anomaly on a longer, standard baseline (WMO 1991-2020), "method A":
+#   anomaly_1991-2020 = GCOM-C anomaly (BASELINE) + [OISST clim(BASELINE) - OISST clim(REFERENCE_BASELINE)]
+# per pixel and per climatology window. OISST v2.1 (0.25 deg, 1981-) supplies how much warmer the recent
+# baseline is; GCOM-C keeps its 4.6 km detail. SST only.
+REFERENCE_BASELINE = (1991, 2020)
+OISST_COLLECTION = "NOAA/CDR/OISST/V2_1"
+OISST_BAND = "sst"
+OISST_SCALE = 0.01                  # DN -> degC
+# OISST is masked on its 0.25 deg land cells; coastal GCOM-C pixels take the offset from this neighbourhood.
+OISST_FILL_RADIUS_M = 75000
+
 # A one-day climatology from 8 years would be mostly cloud gaps, so each day is compared with the
 # mean of day +/- this many days in every baseline year (15-day window).
 DAILY_CLIM_HALF_WINDOW = 7
